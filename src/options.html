@@ -1,0 +1,54 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Kimini → Google カレンダー の設定</title>
+<style>
+  body { font-family: -apple-system, "Hiragino Sans", sans-serif; max-width: 620px; margin: 40px auto; padding: 0 20px; color: #222; line-height: 1.7; }
+  h1 { font-size: 20px; }
+  .row { margin: 18px 0; }
+  label { display: block; font-weight: 600; margin-bottom: 4px; }
+  input[type=text], input[type=number] { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; box-sizing: border-box; }
+  .hint { font-size: 12px; color: #666; margin-top: 4px; }
+  button { padding: 9px 18px; border-radius: 6px; border: 1px solid #2f9e5f; background: #2f9e5f; color: #fff; font-size: 14px; cursor: pointer; }
+  button.secondary { background: #fff; color: #2f9e5f; }
+  #status { margin-left: 12px; font-size: 13px; }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; }
+  .checkbox-row label { margin: 0; }
+</style>
+
+<h1>Kimini → Google カレンダー</h1>
+
+<div class="row checkbox-row">
+  <input type="checkbox" id="enabled">
+  <label for="enabled">自動登録を有効にする</label>
+</div>
+
+<div class="row">
+  <label for="calendarId">登録先のカレンダーID</label>
+  <input type="text" id="calendarId" placeholder="primary">
+  <div class="hint">既定はメインカレンダー（primary）。別のカレンダーに入れるなら、そのカレンダーIDを指定してください。</div>
+</div>
+
+<div class="row">
+  <label for="titleTemplate">予定のタイトル</label>
+  <input type="text" id="titleTemplate">
+  <div class="hint">{teacher} 講師名 / {course} コース名 / {material} 教材名 が使えます。</div>
+</div>
+
+<div class="row">
+  <label for="reminderMinutes">通知（何分前）</label>
+  <input type="number" id="reminderMinutes" min="-1" max="1440">
+  <div class="hint">-1 にすると通知を設定しません。</div>
+</div>
+
+<div class="row">
+  <button id="save">保存</button>
+  <button id="connect" class="secondary">Googleアカウントを連携</button>
+  <span id="status"></span>
+</div>
+
+<div class="row">
+  <button id="reset" class="secondary">登録済みの記録を消去</button>
+  <div class="hint">拡張機能が「登録済み」と覚えているレッスンの一覧を消します。カレンダー上の予定は消えません。</div>
+</div>
+
+<script src="options.js"></script>
