@@ -57,14 +57,20 @@ function parseBlock(block, lessonId) {
   const courseLink = block.querySelector('a[href*="/plus/entry/"]');
   const course = textOf(courseLink);
 
-  // 教材名はコースリンクを含むボックス内の、コースリンク以外のリンク
+  // 教材名はコースリンクを含むボックス内の、コースリンク以外のリンク。
+  // コースによって教材の示し方が違う（外部サイトへのリンクのこともあれば単元名のこともある）ため、
+  // 取れなかった場合は空のままにする。教材名が無くても予定としては十分成り立つ。
   let material = '';
   if (courseLink) {
-    const courseBox = courseLink.closest('div').parentElement || courseLink.parentElement;
-    const other = [...courseBox.querySelectorAll('a')].find(
-      (a) => a !== courseLink && textOf(a) && !a.href.includes('/plus/entry/')
-    );
-    material = textOf(other);
+    const courseBox =
+      (courseLink.closest('div') && courseLink.closest('div').parentElement) ||
+      courseLink.parentElement;
+    if (courseBox) {
+      const other = [...courseBox.querySelectorAll('a')].find(
+        (a) => a !== courseLink && textOf(a) && !a.getAttribute('href').includes('/plus/entry/')
+      );
+      material = textOf(other);
+    }
   }
 
   const pad = (n) => String(n).padStart(2, '0');
@@ -137,8 +143,10 @@ function collectReservations() {
     const block = findBlock(a);
     if (!block) continue;
 
+    // 講師名やコース名が取れなくても、レッスン ID と日時が分かれば予定は作れる。
+    // 講師未定の予約や、未確認のコースで表示が異なる場合に取りこぼさないようにする。
     const reservation = parseBlock(block, lessonId);
-    if (reservation && reservation.teacher) found.set(lessonId, reservation);
+    if (reservation) found.set(lessonId, reservation);
   }
   return [...found.values()];
 }
