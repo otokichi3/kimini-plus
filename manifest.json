@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Kimini → Google カレンダー",
+  "version": "1.0.0",
+  "description": "Kimini英会話でレッスンを予約すると、自動でGoogleカレンダーに登録します。",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAlzkfAdYSE1HVfZb6VMG1Cu3ILEqJYXDWmf3s+Lpm7OWEOQHRDBKb4kWcHPs5zod4B1fRwjDXcJstYzyrWNDNNEdZvfZFoWf9JM9tGKfDtQGC/02pkEiihHKNqR1YZ8Mb5d+8f3z1uMSe+zc8wvKRgjuVbkFV/9inOullmAQKIpxLrQDTzKpwlHsZw2kvXw4A4t/uVpYyLQmhqTJ81arW1i9zlTNq3JSizKKi1zrj1mQ3mXnlShUcKhPYW3a7CW8RzDWeM3FhszQDNoKFIv7T74Wlslm56k7WgzFon1nCqFlQawP4090B8qGEofXIKbsXZZfIr6Lih+4u9zoeOOhP3wIDAQAB",
+  "oauth2": {
+    "client_id": "121737888244-cmvs3o7uaaanev1175drp1hlgh0d6v79.apps.googleusercontent.com",
+    "scopes": [
+      "https://www.googleapis.com/auth/calendar.events"
+    ]
+  },
+  "permissions": [
+    "identity",
+    "storage",
+    "notifications"
+  ],
+  "host_permissions": [
+    "https://www.googleapis.com/"
+  ],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://kimini.online/plus/*"
+      ],
+      "js": [
+        "src/content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "src/options.html",
+  "action": {
+    "default_title": "Kimini → Google カレンダー",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}
