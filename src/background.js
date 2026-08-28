@@ -125,6 +125,44 @@ async function syncReservation(token, settings, reservation) {
   return result.alreadyExists ? 'skipped' : 'created';
 }
 
+async function deleteEvent(token, settings, lessonId) {
+  const existing = await findExistingEvent(token, settings, lessonId);
+  if (!existing) return false;
+
+  const response = await callApi(
+    token,
+    `/calendars/${encodeURIComponent(settings.calendarId)}/events/${encodeURIComponent(existing.id)}`,
+    { method: 'DELETE' }
+  );
+  // 410/404 は既に消えている場合。消えていること自体が目的なので成功として扱う
+  if (!response.ok && ![404, 410].includes(response.status)) {
+    throw new Error(`Calendar API ${response.status}`);
+  }
+  return true;
+}
+
+// 予約中の一覧から消えたレッスンは、キャンセルされたものとみなしてカレンダーからも消す。
+// ただし開始時刻を過ぎたものは対象外。受講を終えたレッスンも「予約中」ではなくなるため、
+// 時刻で線を引かないと、受け終わったレッスンの予定まで消えてしまう。
+async function removeCancelled(token, settings, reservedLessonIds, syncedLessons) {
+  const reserved = new Set(reservedLessonIds);
+  const removed = [];
+
+  for (const [lessonId, record] of Object.entries(syncedLessons)) {
+    if (reserved.has(lessonId)) continue;
+    if (!record.start || new Date(record.start).getTime() <= Date.now()) continue;
+
+    try {
+      await deleteEvent(token, settings, lessonId);
+      delete syncedLessons[lessonId];
+      removed.push(record);
+    } catch (error) {
+      console.error('[Kimini] キャンセル分の削除に失敗しました', lessonId, error);
+    }
+  }
+  return removed;
+}
+
 function notify(title, message) {
   chrome.notifications.create({
     type: 'basic',
@@ -134,13 +172,16 @@ function notify(title, message) {
   });
 }
 
-async function handleReservations(reservations, fromConfirmation) {
+async function handleReservations(reservations, fromConfirmation, reservedLessonIds) {
   const settings = await getSettings();
   if (!settings.enabled) return;
 
   const { syncedLessons = {} } = await chrome.storage.local.get('syncedLessons');
   const pending = reservations.filter((r) => !syncedLessons[r.lessonId]);
-  if (!pending.length) return;
+
+  // キャンセルの確認は、予約中の一覧を取り切れたときだけ行う（content.js 側で保証している）
+  const canCheckCancellations = Array.isArray(reservedLessonIds);
+  if (!pending.length && !canCheckCancellations) return;
 
   // 予約確定の直後だけは、必要なら Google のログイン画面を出す。
   // それ以外のページでは、黙って何も起きない方がいいので非対話で試すだけにする。
@@ -151,6 +192,15 @@ async function handleReservations(reservations, fromConfirmation) {
       notify('カレンダーに登録できませんでした', 'Googleアカウントの連携が必要です。拡張機能の設定を開いてください。');
     }
     return;
+  }
+
+  let removed = [];
+  if (canCheckCancellations) {
+    try {
+      removed = await removeCancelled(token, settings, reservedLessonIds, syncedLessons);
+    } catch (error) {
+      console.error('[Kimini] キャンセルの確認に失敗しました', error);
+    }
   }
 
   const created = [];
@@ -190,11 +240,19 @@ async function handleReservations(reservations, fromConfirmation) {
   } else if (created.length > 1) {
     notify('カレンダーに登録しました', `${created.length}件のレッスンを追加しました`);
   }
+
+  if (removed.length === 1) {
+    const r = removed[0];
+    const when = String(r.start).replace('T', ' ').slice(0, 16);
+    notify('カレンダーから削除しました', `${when} ${r.teacher || ''}`.trim());
+  } else if (removed.length > 1) {
+    notify('カレンダーから削除しました', `${removed.length}件のレッスンを削除しました`);
+  }
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type !== 'kimini-reservations') return;
-  handleReservations(message.reservations, message.fromConfirmation)
+  handleReservations(message.reservations, message.fromConfirmation, message.reservedLessonIds)
     .then(() => sendResponse({ ok: true }))
     .catch((error) => {
       console.error('[Kimini]', error);

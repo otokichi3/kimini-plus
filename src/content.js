@@ -92,6 +92,40 @@ function parseBlock(block, lessonId) {
   };
 }
 
+// キャンセルされた予約をカレンダーから消すには、「今どれが予約中か」の完全な一覧が要る。
+// 表示中のページはその一部しか映していないことがあるため、レッスン一覧の検索フォームと
+// 同じ POST を投げ、予約中だけに絞った一覧を取り直す。
+//
+// 件数表示と取得件数が食い違うときは null を返す。ページ送りの向こうに隠れている予約が
+// あるということで、そのまま消すと「見えなかっただけの予約」を削除してしまう。
+async function fetchReservedLessonIds() {
+  try {
+    const response = await fetch('/plus/lesson/list', {
+      method: 'POST',
+      body: new URLSearchParams({ '.submitted': '1', status: 'reserved' }),
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+    if (!response.ok) return null;
+
+    const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+    const ids = [
+      ...new Set(
+        [...doc.querySelectorAll('a[href*="/plus/lesson/"]')]
+          .map((a) => (a.getAttribute('href').match(/\/plus\/lesson\/(\d+)/) || [])[1])
+          .filter(Boolean)
+      ),
+    ];
+
+    const total = doc.body.textContent.replace(/\s+/g, '').match(/全(\d+)レッスン/);
+    if (!total || Number(total[1]) !== ids.length) return null;
+
+    return ids;
+  } catch (error) {
+    return null;
+  }
+}
+
 function collectReservations() {
   const found = new Map();
   for (const a of document.querySelectorAll('a[href*="/plus/lesson/"]')) {
@@ -109,14 +143,33 @@ function collectReservations() {
   return [...found.values()];
 }
 
-function run() {
+// 予約の一覧性があるページでだけキャンセルを確認する。全ページで問い合わせるのは無駄が多い。
+const CANCELLATION_CHECK_PATHS = [
+  '/plus/calendar',
+  '/plus/lesson/list',
+  '/plus/lesson/reserve/result',
+];
+
+let cancellationChecked = false;
+
+async function run() {
   const reservations = collectReservations();
-  if (!reservations.length) return;
+  const fromConfirmation = location.pathname.startsWith('/plus/lesson/reserve/result');
+
+  let reservedLessonIds = null;
+  if (!cancellationChecked && CANCELLATION_CHECK_PATHS.some((p) => location.pathname.startsWith(p))) {
+    cancellationChecked = true;
+    reservedLessonIds = await fetchReservedLessonIds();
+  }
+
+  if (!reservations.length && !reservedLessonIds) return;
+
   chrome.runtime.sendMessage({
     type: 'kimini-reservations',
     reservations,
+    reservedLessonIds,
     // 予約確定直後だけは、未認証なら Google のログイン画面を出してでも登録しにいく
-    fromConfirmation: location.pathname.startsWith('/plus/lesson/reserve/result'),
+    fromConfirmation,
   });
 }
 
