@@ -9,6 +9,11 @@
 const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
 const TIME_ZONE = 'Asia/Tokyo';
 
+// 登録済みの記録を残しておく期間。
+// 記録は二重登録を防ぐためのもので、そもそも開始時刻が未来のレッスンしか登録しない。
+// 十分に過ぎたレッスンの記録は、持っていても再登録の判定に使われることがない。
+const RECORD_RETENTION_DAYS = 90;
+
 const DEFAULTS = {
   calendarId: 'primary',
   reminderMinutes: 10,
@@ -163,6 +168,22 @@ async function removeCancelled(token, settings, reservedLessonIds, syncedLessons
   return removed;
 }
 
+// 古い記録を捨てる。開始時刻が分からない壊れた記録も、ここで一緒に片付ける。
+// そうした記録はキャンセル判定でも毎回読み飛ばされるだけで、放っておくと残り続ける。
+function pruneSyncedLessons(syncedLessons) {
+  const threshold = Date.now() - RECORD_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  let pruned = 0;
+
+  for (const [lessonId, record] of Object.entries(syncedLessons)) {
+    const at = new Date(record.start || record.syncedAt || '').getTime();
+    if (Number.isNaN(at) || at < threshold) {
+      delete syncedLessons[lessonId];
+      pruned += 1;
+    }
+  }
+  return pruned;
+}
+
 function notify(title, message) {
   chrome.notifications.create({
     type: 'basic',
@@ -231,6 +252,7 @@ async function handleReservations(reservations, fromConfirmation, reservedLesson
     }
   }
 
+  pruneSyncedLessons(syncedLessons);
   await chrome.storage.local.set({ syncedLessons });
 
   if (created.length === 1) {
