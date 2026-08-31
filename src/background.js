@@ -193,26 +193,27 @@ function notify(title, message) {
   });
 }
 
-async function handleReservations(reservations, fromConfirmation, reservedLessonIds) {
+async function handleReservations(reservations, fromConfirmation, reservedLessonIds, interactive) {
   const settings = await getSettings();
-  if (!settings.enabled) return;
+  if (!settings.enabled) return { status: 'disabled' };
 
   const { syncedLessons = {} } = await chrome.storage.local.get('syncedLessons');
   const pending = reservations.filter((r) => !syncedLessons[r.lessonId]);
 
   // キャンセルの確認は、予約中の一覧を取り切れたときだけ行う（content.js 側で保証している）
   const canCheckCancellations = Array.isArray(reservedLessonIds);
-  if (!pending.length && !canCheckCancellations) return;
+  if (!pending.length && !canCheckCancellations) return { status: 'ok', created: 0, removed: 0 };
 
-  // 予約確定の直後だけは、必要なら Google のログイン画面を出す。
+  // 予約確定の直後と、設定ページからの手動同期では、必要なら Google のログイン画面を出す。
   // それ以外のページでは、黙って何も起きない方がいいので非対話で試すだけにする。
+  const mayPrompt = Boolean(fromConfirmation || interactive);
   let token = await getToken(false);
-  if (!token && fromConfirmation) token = await getToken(true);
+  if (!token && mayPrompt) token = await getToken(true);
   if (!token) {
     if (fromConfirmation) {
       notify('カレンダーに登録できませんでした', 'Googleアカウントの連携が必要です。拡張機能の設定を開いてください。');
     }
-    return;
+    return { status: 'needsAuth' };
   }
 
   let removed = [];
@@ -233,7 +234,7 @@ async function handleReservations(reservations, fromConfirmation, reservedLesson
       } catch (error) {
         if (!error.unauthorized) throw error;
         // トークンを取り直して1度だけやり直す
-        token = await getToken(fromConfirmation);
+        token = await getToken(mayPrompt);
         if (!token) throw error;
         outcome = await syncReservation(token, settings, reservation);
       }
@@ -270,15 +271,33 @@ async function handleReservations(reservations, fromConfirmation, reservedLesson
   } else if (removed.length > 1) {
     notify('カレンダーから削除しました', `${removed.length}件のレッスンを削除しました`);
   }
+
+  return { status: 'ok', created: created.length, removed: removed.length };
+}
+
+// 設定ページが結果を待っているかもしれないので知らせる。
+// 開かれていなければ受け手がいないだけなので、失敗は無視してよい。
+function broadcastResult(result) {
+  chrome.runtime.sendMessage({ type: 'kimini-sync-result', result }).catch(() => {});
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type !== 'kimini-reservations') return;
-  handleReservations(message.reservations, message.fromConfirmation, message.reservedLessonIds)
-    .then(() => sendResponse({ ok: true }))
+  handleReservations(
+    message.reservations,
+    message.fromConfirmation,
+    message.reservedLessonIds,
+    message.interactive
+  )
+    .then((result) => {
+      sendResponse({ ok: true, result });
+      broadcastResult(result);
+    })
     .catch((error) => {
       console.error('[Kimini]', error);
-      sendResponse({ ok: false, error: String(error) });
+      const result = { status: 'error', message: String(error.message || error) };
+      sendResponse({ ok: false, result });
+      broadcastResult(result);
     });
   return true; // 非同期に応答する
 });

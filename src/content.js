@@ -163,6 +163,9 @@ let cancellationChecked = false;
 async function run() {
   const reservations = collectReservations();
   const fromConfirmation = location.pathname.startsWith('/plus/lesson/reserve/result');
+  // 設定ページの「予約済みのレッスンを取り込む」から開かれたタブ。
+  // このときは未認証なら Google のログイン画面を出してよい。
+  const manual = new URLSearchParams(location.search).get('sync') === 'manual';
 
   let reservedLessonIds = null;
   if (!cancellationChecked && CANCELLATION_CHECK_PATHS.some((p) => location.pathname.startsWith(p))) {
@@ -170,7 +173,7 @@ async function run() {
     reservedLessonIds = await fetchReservedLessonIds();
   }
 
-  if (!reservations.length && !reservedLessonIds) return;
+  if (!reservations.length && !reservedLessonIds && !manual) return;
 
   chrome.runtime.sendMessage({
     type: 'kimini-reservations',
@@ -178,6 +181,7 @@ async function run() {
     reservedLessonIds,
     // 予約確定直後だけは、未認証なら Google のログイン画面を出してでも登録しにいく
     fromConfirmation,
+    interactive: manual,
   });
 }
 
