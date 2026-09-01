@@ -33,9 +33,10 @@
       "run_at": "document_idle"
     }
   ],
-  "options_page": "src/options.html",
+  "options_page": "src/popup.html",
   "action": {
     "default_title": "Lesson GCal Sync for Kimini",
+    "default_popup": "src/popup.html",
     "default_icon": {
       "16": "icon16.png",
       "48": "icon48.png",

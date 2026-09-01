@@ -275,13 +275,54 @@ async function handleReservations(reservations, fromConfirmation, reservedLesson
   return { status: 'ok', created: created.length, removed: removed.length };
 }
 
-// 設定ページが結果を待っているかもしれないので知らせる。
-// 開かれていなければ受け手がいないだけなので、失敗は無視してよい。
-function broadcastResult(result) {
-  chrome.runtime.sendMessage({ type: 'kimini-sync-result', result }).catch(() => {});
+// 手動での取り込み。
+//
+// Kimini のセッション Cookie は、拡張機能のページから直接 fetch しても送られるとは限らない。
+// 確実なのは Kimini のページ自体に処理させることなので、レッスン一覧を裏のタブに開き、
+// いつも動いている content script に任せて閉じる。
+//
+// この一連の流れをポップアップではなく service worker 側に置いている。ポップアップは
+// 閉じると動作が止まるため、そちらでタブを開くと、閉じられたときにタブが残ってしまう。
+const MANUAL_SYNC_URL = 'https://kimini.online/plus/lesson/list?sync=manual';
+const MANUAL_SYNC_TIMEOUT_MS = 30000;
+
+let manualSync = null;
+
+async function runManualSync() {
+  if (manualSync) return { status: 'busy' };
+
+  const tab = await chrome.tabs.create({ url: MANUAL_SYNC_URL, active: false });
+
+  return new Promise((resolve) => {
+    const finish = (result) => {
+      if (!manualSync || manualSync.tabId !== tab.id) return;
+      clearTimeout(manualSync.timer);
+      manualSync = null;
+      chrome.tabs.remove(tab.id).catch(() => {});
+      resolve(result);
+    };
+
+    const timer = setTimeout(async () => {
+      // ログインしていないと Kimini 側でログインページに飛ばされ、content script は
+      // 予約を見つけられないまま何も言ってこない
+      const current = await chrome.tabs.get(tab.id).catch(() => null);
+      const redirected = current && !current.url.includes('/plus/lesson/list');
+      finish({ status: redirected ? 'needsKiminiLogin' : 'timeout' });
+    }, MANUAL_SYNC_TIMEOUT_MS);
+
+    manualSync = { tabId: tab.id, finish, timer };
+  });
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === 'kimini-manual-sync') {
+    // ポップアップが閉じられても、取り込みは最後まで走らせる
+    runManualSync()
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) => sendResponse({ ok: false, result: { status: 'error', message: String(error.message || error) } }));
+    return true;
+  }
+
   if (message.type !== 'kimini-reservations') return;
   handleReservations(
     message.reservations,
@@ -291,13 +332,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   )
     .then((result) => {
       sendResponse({ ok: true, result });
-      broadcastResult(result);
+      if (manualSync && _sender.tab && _sender.tab.id === manualSync.tabId) {
+        manualSync.finish(result);
+      }
     })
     .catch((error) => {
       console.error('[Kimini]', error);
       const result = { status: 'error', message: String(error.message || error) };
       sendResponse({ ok: false, result });
-      broadcastResult(result);
+      if (manualSync && _sender.tab && _sender.tab.id === manualSync.tabId) {
+        manualSync.finish(result);
+      }
     });
   return true; // 非同期に応答する
 });
